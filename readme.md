@@ -68,6 +68,40 @@ Prerequisites: JDK 21, Docker.
    ```
    Results at http://localhost:3000/d/Le2Ku9NMk/k6-performance-test.
 
+### Architecture: Hexagonal (Ports & Adapters)
+
+The business logic (`domain/` + `application/`) has zero dependency on Spring, HTTP, or any concrete technology. It only knows about **ports** — interfaces describing what it needs from, and offers to, the outside world. Concrete technology lives exclusively in **adapters**, which implement those ports. This keeps the orchestration rule ("drop a failing similar product, don't fail the whole request") testable in isolation and swappable at the edges (e.g. REST → gRPC, or the mock upstream → a real one) without touching the core.
+
+```
+app/src/main/java/com/similarproducts/app/
+├── domain/
+│   ├── model/        → ProductId, ProductDetail — plain Java, no framework
+│   ├── port/in/       → GetSimilarProductsUseCase — what the domain exposes
+│   ├── port/out/      → SimilarIdsPort, ProductDetailPort — what the domain needs
+│   └── exception/     → Business exceptions (ProductNotFoundException, ...)
+├── application/       → GetSimilarProductsService — orchestrates domain + ports
+└── infrastructure/
+    ├── adapter/in/web/     → SimilarProductsController + response DTOs (implements the OpenAPI contract)
+    ├── adapter/out/client/ → WebClient adapters calling the `simulado` mock (implements the out-ports)
+    └── config/             → WebClient, Caffeine cache and Resilience4j wiring
+```
+
+Dependencies always point inward: `infrastructure` depends on `domain`, never the reverse. `domain/` and `application/` import zero Spring/Resilience4j/Reactor-adapter classes — verified with `rg "import org.springframework"` and `rg "import io.github.resilience4j"` against `domain/` returning no matches.
+
+### Technology choices and why
+
+| Dependency | Purpose | Why this one |
+|---|---|---|
+| `spring-boot-starter-webflux` | Reactive web framework (Netty server, `Mono`/`Flux`) | Each request fans out to 1+N upstream calls, some of them slow (up to 50s in the mock). A blocking stack (Spring MVC) would tie up one thread per in-flight call; a small non-blocking event-loop pool handles 200 concurrent VUs against slow upstreams without exhausting threads. |
+| `spring-boot-starter-actuator` | `/actuator/health` and metrics | Baseline observability, no extra cost to wire in. |
+| `spring-boot-starter-validation` | Declarative input validation | Standard for request validation if/when the contract grows beyond a single path variable. |
+| `spring-boot-starter-cache` | Spring's caching abstraction | Present as a dependency, but **not** the caching mechanism actually used — see Caffeine below for why. |
+| `caffeine` | In-process cache | No network hop, no extra infrastructure to run. Appropriate for a single-instance service with nothing to share a cache with; a distributed cache (e.g. Redis) would only earn its keep once there are multiple instances that need to agree on cached state. |
+| `resilience4j-spring-boot4` | Circuit breaker + time limiter | The Spring-Boot-4-specific module — `resilience4j-spring-boot3` fails to start on Boot 4 (different auto-configuration contract), which surfaced as a real startup failure during implementation. |
+| `resilience4j-reactor` | Adapts Resilience4j decorators to `Mono`/`Flux` | The annotation-based decorators (`@CircuitBreaker`, `@TimeLimiter`) rely on Spring AOP proxies, which don't compose reliably with reactive return types, and can't be parameterized dynamically (a circuit breaker instance *per product id*, decided at runtime). The reactor module's operators (`transformDeferred(...Operator.of(...))`) apply directly to a `Mono` and accept a breaker/limiter instance chosen at call time. |
+
+Caffeine specifically uses `AsyncCache`, not `@Cacheable`: `@Cacheable` is synchronous and would block the WebFlux event loop from inside a reactive pipeline, which defeats the point of being reactive. `AsyncCache` is non-blocking and additionally **coalesces** concurrent requests for the same key — under 200 VUs hitting the same product, they share one in-flight upstream call instead of firing 200 identical ones.
+
 ### Development methodology: Spec-Driven Development (SDD) + Strict TDD
 
 Built end-to-end with SDD: every phase produced a reviewable artifact before any code was written, and every artifact was verified against the real source tree afterward rather than trusted at face value.
