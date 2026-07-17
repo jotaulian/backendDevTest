@@ -13,3 +13,19 @@ management:
     web:
       exposure:
         include: health,metrics
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      productDetail:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+  timelimiter:
+    configs:
+      productDetail:
+        timeout-duration: 2s
+        cancel-running-future: true
