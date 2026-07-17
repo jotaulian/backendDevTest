@@ -1,0 +1,15 @@
+server:
+  port: 5000
+
+spring:
+  application:
+    name: similar-products-app
+
+upstream:
+  base-url: http://localhost:3001
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
