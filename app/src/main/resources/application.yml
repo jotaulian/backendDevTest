@@ -24,6 +24,11 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10s
         permitted-number-of-calls-in-half-open-state: 3
+        record-exceptions:
+          - com.similarproducts.app.domain.exception.UpstreamServerException
+          - java.util.concurrent.TimeoutException
+        ignore-exceptions:
+          - com.similarproducts.app.domain.exception.ProductNotFoundException
   timelimiter:
     configs:
       productDetail:

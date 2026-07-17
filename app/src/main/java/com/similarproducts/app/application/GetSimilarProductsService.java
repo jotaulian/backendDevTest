@@ -1,5 +1,7 @@
 package com.similarproducts.app.application;
 
+import org.springframework.stereotype.Service;
+
 import com.similarproducts.app.domain.exception.RootProductNotFoundException;
 import com.similarproducts.app.domain.model.ProductDetail;
 import com.similarproducts.app.domain.model.ProductId;
@@ -14,13 +16,8 @@ import reactor.core.publisher.Mono;
  * Orchestrates similar product retrieval: resolves similar ids for a root
  * product, then fetches each id's detail, dropping any per-id failure while
  * preserving similarity order.
- *
- * <p>Not yet annotated as a Spring bean: {@link SimilarIdsPort} and
- * {@link ProductDetailPort} have no adapter implementations until the
- * outbound infrastructure phase, so eager component scanning would fail to
- * autowire this class. Wiring (via {@code @Service} or explicit
- * {@code @Bean}) is deferred to that phase.
  */
+@Service
 public class GetSimilarProductsService implements GetSimilarProductsUseCase {
 
 	private final SimilarIdsPort similarIdsPort;
